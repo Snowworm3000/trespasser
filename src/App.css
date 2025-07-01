@@ -46,7 +46,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  min-height: 50vh;
   padding: 20px;
   touch-action: none; /* Prevent browser touch actions like scrolling */
   user-select: none; /* Prevent text selection during swipes */
