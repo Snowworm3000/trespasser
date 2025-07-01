@@ -1,5 +1,61 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import './App.css';
+import { generateConstraintBasedPuzzle, getPerformanceStats, resetPerformanceStats } from './puzzle-generator.js';
+import { runComprehensiveBenchmark, testPuzzleQuality } from './benchmark.js';
+import { analyzePuzzleDifficulty } from './difficulty-analyzer.js';
+import { runAllTests } from './test-suite.js';
+import { simplifiedEvolutionaryGenerator } from './simplified-evolutionary-generator.js';
+import backgroundImage from './assets/image2.png';
+
+// Test function to validate imports
+function testImportsAndExports() {
+  console.log('🧪 Testing imports and exports...');
+  
+  try {
+    // Test that all imports are available
+    console.log('✓ generateConstraintBasedPuzzle:', typeof generateConstraintBasedPuzzle);
+    console.log('✓ getPerformanceStats:', typeof getPerformanceStats);
+    console.log('✓ resetPerformanceStats:', typeof resetPerformanceStats);
+    console.log('✓ runComprehensiveBenchmark:', typeof runComprehensiveBenchmark);
+    console.log('✓ testPuzzleQuality:', typeof testPuzzleQuality);
+    console.log('✓ analyzePuzzleDifficulty:', typeof analyzePuzzleDifficulty);
+    console.log('✓ runAllTests:', typeof runAllTests);
+    console.log('✓ evolutionaryGenerator:', typeof simplifiedEvolutionaryGenerator);
+    
+    // Test calling getPerformanceStats specifically
+    const stats = getPerformanceStats();
+    console.log('✓ getPerformanceStats() successful:', stats);
+    
+    // Test evolutionary generator
+    console.log('✓ simplifiedEvolutionaryGenerator methods:', {
+      generatePuzzle: typeof simplifiedEvolutionaryGenerator.generatePuzzle
+    });
+    
+    console.log('🎉 All imports and exports working correctly!');
+    return true;
+  } catch (error) {
+    console.error('❌ Import/export test failed:', error);
+    return false;
+  }
+}
+
+// Make test function globally available
+window.testImportsAndExports = testImportsAndExports;
+
+// Safe wrapper for getPerformanceStats
+function safeGetPerformanceStats() {
+  try {
+    if (typeof getPerformanceStats === 'function') {
+      return getPerformanceStats();
+    } else {
+      console.warn('getPerformanceStats is not available');
+      return { generationTime: 0, solvabilityChecks: 0, solutionSpaceCalculations: 0, cacheHits: 0, cacheMisses: 0 };
+    }
+  } catch (error) {
+    console.error('Error calling getPerformanceStats:', error);
+    return { generationTime: 0, solvabilityChecks: 0, solutionSpaceCalculations: 0, cacheHits: 0, cacheMisses: 0 };
+  }
+}
 
 // Dodecagon constants
 const SIDES = 12;
@@ -218,11 +274,33 @@ function isPuzzleSolvable(puzzle, points) {
 }
 
 function App() {
+  // Set background image on mount
+  useEffect(() => {
+    document.documentElement.style.setProperty('--background-image', `url(${backgroundImage})`);
+  }, []);
+  
+  // Validation check on app startup
+  useEffect(() => {
+    // Validate all imports are working
+    const importValidation = testImportsAndExports();
+    if (!importValidation) {
+      console.error('❌ Import validation failed on app startup');
+    }
+  }, []);
+  
   // --- Settings State ---
   const [minLit, setMinLit] = useState(3);
   const [maxLit, setMaxLit] = useState(4);
   const [autoSolve, setAutoSolve] = useState(true);
   const [attempts, setAttempts] = useState(1);
+  const [useConstraintBased, setUseConstraintBased] = useState(false);
+  const [algorithmType, setAlgorithmType] = useState('random'); // 'random', 'constraint', 'evolutionary'
+  const [difficulty, setDifficulty] = useState('medium');
+  const [showPerformanceStats, setShowPerformanceStats] = useState(false);
+  const [performanceStats, setPerformanceStats] = useState(null);
+  const [showDifficultyAnalysis, setShowDifficultyAnalysis] = useState(false);
+  const [difficultyAnalysis, setDifficultyAnalysis] = useState(null);
+  const [algorithmStatus, setAlgorithmStatus] = useState('');
 
   // --- Puzzle State ---
   const [puzzle, setPuzzle] = useState(() => generatePuzzle(minLit, maxLit));
@@ -296,15 +374,56 @@ function App() {
 
   useEffect(() => {
     let tries = 1;
-    let newPuzzle = generatePuzzle(minLit, maxLit);
-    let solvable = isPuzzleSolvable(newPuzzle, points);
-    if (autoSolve) {
-      while (!solvable && tries < 1000) {
+    let newPuzzle;
+    let solvable = true;
+    
+    try {
+      if (algorithmType === 'constraint') {
+        setAlgorithmStatus('Generating constraint-based puzzle...');
+        resetPerformanceStats();
+        newPuzzle = generateConstraintBasedPuzzle(minLit, maxLit, difficulty);
+        try {
+          setPerformanceStats(safeGetPerformanceStats());
+        } catch (error) {
+          console.error('Error getting performance stats:', error);
+          setPerformanceStats({ generationTime: 0, solvabilityChecks: 0, solutionSpaceCalculations: 0, cacheHits: 0, cacheMisses: 0 });
+        }
+        setAlgorithmStatus('Constraint-based puzzle generated successfully');
+      } else if (algorithmType === 'evolutionary') {
+        setAlgorithmStatus('Generating evolutionary puzzle...');
+        const result = simplifiedEvolutionaryGenerator.generatePuzzle(difficulty);
+        newPuzzle = result.puzzle;
+        setPerformanceStats({
+          generationTime: result.metadata.timeMs,
+          solvabilityChecks: 0,
+          solutionSpaceCalculations: result.metadata.generations,
+          cacheHits: 0,
+          cacheMisses: 0
+        });
+        setAlgorithmStatus(`Evolutionary puzzle generated! Fitness: ${result.metadata.fitness.toFixed(3)}, Solvable: ${result.metadata.solvable ? 'Yes' : 'No'}`);
+      } else {
+        setAlgorithmStatus('Generating random puzzle...');
         newPuzzle = generatePuzzle(minLit, maxLit);
         solvable = isPuzzleSolvable(newPuzzle, points);
-        tries++;
+        
+        if (autoSolve) {
+          while (!solvable && tries < 1000) {
+            setAlgorithmStatus(`Generating puzzle... attempt ${tries}`);
+            newPuzzle = generatePuzzle(minLit, maxLit);
+            solvable = isPuzzleSolvable(newPuzzle, points);
+            tries++;
+          }
+        }
+        setAlgorithmStatus(`Random puzzle generated in ${tries} attempts`);
       }
+    } catch (error) {
+      console.error('Error generating puzzle:', error);
+      setAlgorithmStatus('Error: ' + error.message);
+      // Fallback to original algorithm
+      newPuzzle = generatePuzzle(minLit, maxLit);
+      solvable = isPuzzleSolvable(newPuzzle, points);
     }
+    
     setInternalPuzzle(newPuzzle);
     setInternalAttempts(tries);
     setPuzzle(newPuzzle);
@@ -312,7 +431,7 @@ function App() {
     setRotations([0, 0, 0]);
     setSelected(0);
     // eslint-disable-next-line
-  }, [minLit, maxLit, autoSolve]);
+  }, [minLit, maxLit, autoSolve, algorithmType, difficulty]);
 
   // Use internalPuzzle for emitters/blockers
   const CIRCLES = internalPuzzle.circles;
@@ -334,26 +453,71 @@ function App() {
     setAutoSolve(e.target.checked);
   };
   const newPuzzleBtn = () => {
-    if (autoSolve) {
-      let tries = 1;
-      let newPuzzle = generatePuzzle(minLit, maxLit);
-      let solvable = isPuzzleSolvable(newPuzzle, points);
-      while (!solvable && tries < 1000) {
-        newPuzzle = generatePuzzle(minLit, maxLit);
-        solvable = isPuzzleSolvable(newPuzzle, points);
-        tries++;
+    try {
+      if (algorithmType === 'constraint') {
+        resetPerformanceStats();
+        const newPuzzle = generateConstraintBasedPuzzle(minLit, maxLit, difficulty);
+        setInternalPuzzle(newPuzzle);
+        setAttempts(1);
+        setInternalAttempts(1);
+        try {
+          setPerformanceStats(safeGetPerformanceStats());
+        } catch (error) {
+          console.error('Error getting performance stats:', error);
+          setPerformanceStats({ generationTime: 0, solvabilityChecks: 0, solutionSpaceCalculations: 0, cacheHits: 0, cacheMisses: 0 });
+        }
+      } else if (algorithmType === 'evolutionary') {
+        const result = simplifiedEvolutionaryGenerator.generatePuzzle(difficulty);
+        setInternalPuzzle(result.puzzle);
+        setAttempts(1);
+        setInternalAttempts(1);
+        setPerformanceStats({
+          generationTime: result.metadata.timeMs,
+          solvabilityChecks: 0,
+          solutionSpaceCalculations: result.metadata.generations,
+          cacheHits: 0,
+          cacheMisses: 0
+        });
+      } else {
+        if (autoSolve) {
+          let tries = 1;
+          let newPuzzle = generatePuzzle(minLit, maxLit);
+          let solvable = isPuzzleSolvable(newPuzzle, points);
+          while (!solvable && tries < 1000) {
+            newPuzzle = generatePuzzle(minLit, maxLit);
+            solvable = isPuzzleSolvable(newPuzzle, points);
+            tries++;
+          }
+          setInternalPuzzle(newPuzzle);
+          setAttempts(tries);
+          setInternalAttempts(tries);
+        } else {
+          setInternalPuzzle(generatePuzzle(minLit, maxLit));
+          setAttempts(1);
+          setInternalAttempts(1);
+        }
       }
-      setInternalPuzzle(newPuzzle);
-      setAttempts(tries);
-      setInternalAttempts(tries);
-      setRotations([0, 0, 0]);
-      setSelected(0);
-    } else {
-      setInternalPuzzle(generatePuzzle(minLit, maxLit));
+    } catch (error) {
+      console.error('Error generating new puzzle:', error);
+      // Fallback to original algorithm
+      const fallbackPuzzle = generatePuzzle(minLit, maxLit);
+      setInternalPuzzle(fallbackPuzzle);
       setAttempts(1);
       setInternalAttempts(1);
-      setRotations([0, 0, 0]);
-      setSelected(0);
+    }
+    
+    setRotations([0, 0, 0]);
+    setSelected(0);
+    
+    // Analyze difficulty if enabled
+    if (showDifficultyAnalysis) {
+      try {
+        const analysis = analyzePuzzleDifficulty(internalPuzzle);
+        setDifficultyAnalysis(analysis);
+      } catch (error) {
+        console.error('Error analyzing puzzle difficulty:', error);
+        setDifficultyAnalysis(null);
+      }
     }
   };
 
@@ -585,7 +749,7 @@ function App() {
       onTouchEnd={onTouchEnd}
     >
       <h1>R&C Trespasser puzzle</h1>
-      <svg width={CENTER * 2} height={CENTER * 2}>
+      <svg width={CENTER * 2} height={CENTER * 2} className="puzzle-svg">
         {/* Draw dodecagon edges */}
         {points.map((pt, i) => {
           const next = points[(i + 1) % SIDES];
@@ -652,12 +816,157 @@ function App() {
         <input type="number" min={1} max={maxLit} value={minLit} onChange={handleMinLit} style={{width:40}} />
         <span> to </span>
         <input type="number" min={minLit} max={SIDES} value={maxLit} onChange={handleMaxLit} style={{width:40}} />
+        
         <label style={{marginLeft:'1em'}}>
-          <input type="checkbox" checked={autoSolve} onChange={handleAutoSolve} /> Auto-regenerate if unsolvable
+          <input type="checkbox" checked={autoSolve} onChange={handleAutoSolve} disabled={algorithmType !== 'random'} /> 
+          Auto-regenerate if unsolvable
         </label>
+        
         <span style={{marginLeft:'1em'}}>Attempts: {internalAttempts}</span>
       </div>
-      <button onClick={newPuzzleBtn} style={{marginTop:'1em',fontSize:'1.1em'}}>New Puzzle</button>
+      
+      <div style={{marginBottom:'1em', padding:'1em', border:'1px solid #444', borderRadius:'5px', backgroundColor:'#1a1a1a'}}>
+        <h3 style={{margin:'0 0 0.5em 0', color:'#4af'}}>Algorithm Selection</h3>
+        
+        <label style={{marginRight:'1em'}}>
+          Algorithm: 
+          <select 
+            value={algorithmType} 
+            onChange={(e) => setAlgorithmType(e.target.value)}
+            style={{marginLeft:'0.5em', padding:'0.2em'}}
+          >
+            <option value="random">Random Generation</option>
+            <option value="constraint">Constraint-Based</option>
+            <option value="evolutionary">Evolutionary (NEW)</option>
+          </select>
+        </label>
+        
+        {(algorithmType === 'constraint' || algorithmType === 'evolutionary') && (
+          <>
+            <label style={{marginLeft:'1em', marginRight:'1em'}}>
+              Difficulty: 
+              <select 
+                value={difficulty} 
+                onChange={(e) => setDifficulty(e.target.value)}
+                style={{marginLeft:'0.5em', padding:'2px'}}
+              >
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
+            
+            <label style={{marginLeft:'1em'}}>
+              <input 
+                type="checkbox" 
+                checked={showPerformanceStats} 
+                onChange={(e) => setShowPerformanceStats(e.target.checked)} 
+              /> 
+              Show Performance Stats
+            </label>
+          </>
+        )}
+        
+        <div style={{marginTop:'0.5em', fontSize:'0.9em', color:'#888'}}>
+          {algorithmType === 'evolutionary' ? 
+            'Using evolutionary algorithm with multi-objective optimization' :
+            algorithmType === 'constraint' ? 
+            'Using intelligent constraint-based generation with solution space analysis' : 
+            'Using original random generation with brute-force validation'
+          }
+        </div>
+        
+        {algorithmStatus && (
+          <div style={{marginTop:'0.5em', fontSize:'0.85em', color:'#aaa', fontStyle:'italic'}}>
+            Status: {algorithmStatus}
+          </div>
+        )}
+      </div>
+      
+      {showPerformanceStats && performanceStats && (
+        <div style={{marginBottom:'1em', padding:'1em', border:'1px solid #444', borderRadius:'5px', backgroundColor:'#0a0a0a'}}>
+          <h4 style={{margin:'0 0 0.5em 0', color:'#4fa'}}>📊 Performance Statistics</h4>
+          <div style={{fontSize:'0.85em', color:'#ccc'}}>
+            <div>Generation Time: {performanceStats.generationTime.toFixed(2)}ms</div>
+            <div>Solution Space Calculations: {performanceStats.solutionSpaceCalculations}</div>
+            <div>Cache Hits: {performanceStats.cacheHits} | Cache Misses: {performanceStats.cacheMisses}</div>
+            <div>Cache Hit Rate: {performanceStats.cacheHits + performanceStats.cacheMisses > 0 ? 
+              ((performanceStats.cacheHits / (performanceStats.cacheHits + performanceStats.cacheMisses)) * 100).toFixed(1) : 0}%</div>
+          </div>
+        </div>
+      )}
+      
+      <div style={{marginBottom:'1em'}}>
+        <button onClick={newPuzzleBtn} style={{marginRight:'1em',fontSize:'1.1em'}}>New Puzzle</button>
+        <button 
+          onClick={() => runComprehensiveBenchmark(generatePuzzle, isPuzzleSolvable, points, 50)}
+          style={{marginRight:'1em',fontSize:'0.9em', padding:'0.5em 1em'}}
+        >
+          🏁 Run Benchmark
+        </button>
+        <button 
+          onClick={() => testPuzzleQuality(generatePuzzle, isPuzzleSolvable, points, 30)}
+          style={{fontSize:'0.9em', padding:'0.5em 1em'}}
+        >
+          🎯 Test Quality
+        </button>
+        <button 
+          onClick={() => {
+            console.log('Testing constraint-based algorithm...');
+            try {
+              const testPuzzle = generateConstraintBasedPuzzle(3, 5, 'medium');
+              console.log('Test puzzle generated:', testPuzzle);
+              const solvable = isPuzzleSolvable(testPuzzle, points);
+              console.log('Test puzzle solvable:', solvable);
+              alert(`Test puzzle generated! Solvable: ${solvable ? 'Yes' : 'No'}`);
+            } catch (error) {
+              console.error('Test failed:', error);
+              alert('Test failed: ' + error.message);
+            }
+          }}
+          style={{fontSize:'0.9em', padding:'0.5em 1em', marginLeft:'0.5em'}}
+        >
+          🧪 Test Algorithm
+        </button>
+        <button 
+          onClick={() => {
+            console.log('Running comprehensive test suite...');
+            const success = runAllTests();
+            alert(`Test Suite Complete! ${success ? 'All tests passed ✅' : 'Some tests failed ❌'}\nCheck console for details.`);
+          }}
+          style={{fontSize:'0.9em', padding:'0.5em 1em', marginLeft:'0.5em'}}
+        >
+          🔍 Full Test Suite
+        </button>
+        <button 
+          onClick={() => {
+            console.log('Testing imports and exports...');
+            const success = testImportsAndExports();
+            alert(`Import Test Complete! ${success ? 'All imports working ✅' : 'Import issues found ❌'}\nCheck console for details.`);
+          }}
+          style={{fontSize:'0.9em', padding:'0.5em 1em', marginLeft:'0.5em'}}
+        >
+          📦 Test Imports
+        </button>
+        <button 
+          onClick={() => {
+            console.log('Testing evolutionary algorithm...');
+            try {
+              const result = simplifiedEvolutionaryGenerator.generatePuzzle('medium');
+              console.log('Evolutionary puzzle generated:', result);
+              const solvable = isPuzzleSolvable(result.puzzle, points);
+              console.log('Test puzzle solvable:', solvable);
+              alert(`🧬 Evolutionary Puzzle Generated!\nSolvable: ${solvable ? 'Yes' : 'No'}\nFitness: ${result.metadata.fitness.toFixed(3)}\nAlgorithm Solvable: ${result.metadata.solvable ? 'Yes' : 'No'}\nGenerations: ${result.metadata.generations}\nTime: ${result.metadata.timeMs.toFixed(0)}ms`);
+            } catch (error) {
+              console.error('Evolutionary test failed:', error);
+              alert('Evolutionary test failed: ' + error.message);
+            }
+          }}
+          style={{fontSize:'0.9em', padding:'0.5em 1em', marginLeft:'0.5em', backgroundColor:'#4a4', color:'white'}}
+        >
+          🧬 Test Evolutionary
+        </button>
+      </div>
     </div>
   );
 }
